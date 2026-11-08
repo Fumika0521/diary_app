@@ -1,4 +1,4 @@
-import { openai } from './client'
+import { getOpenAIClient } from './client'
 import type { Analysis } from '@/lib/types'
 
 const SYSTEM_PROMPT = `あなたは感情分析AIです。日記の内容を分析し、必ずJSON形式で返してください。
@@ -15,8 +15,8 @@ const SYSTEM_PROMPT = `あなたは感情分析AIです。日記の内容を分�
 }`
 
 export async function analyzeDiary(content: string): Promise<Analysis> {
-  const response = await openai.chat.completions.create({
-    model: 'gpt-4o',
+  const response = await getOpenAIClient().chat.completions.create({
+    model: 'gpt-4o-mini',
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },

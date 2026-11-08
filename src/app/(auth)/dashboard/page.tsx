@@ -71,7 +71,7 @@ export default function DashboardPage() {
       ) : selectedDiary ? (
         <DiaryCard diary={selectedDiary} />
       ) : isFuture ? (
-        <p className="text-sm text-gray-400 text-center py-8">未来の日付には記録できません</p>
+        <p className="text-sm text-gray-400 text-center py-8">その日になったら、日記を書きにきてね。</p>
       ) : (
         <DiaryForm
           date={isToday ? undefined : selectedDate}
@@ -79,7 +79,9 @@ export default function DashboardPage() {
         />
       )}
 
-      {selectedDiary && <FeedbackPanel />}
+      {selectedDiary && (
+        <FeedbackPanel diaryId={isToday ? undefined : selectedDiary.id} />
+      )}
     </div>
   )
 }

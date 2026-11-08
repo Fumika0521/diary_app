@@ -37,23 +37,58 @@ create policy "Users can delete own diaries" on public.diaries for delete using 
 create policy "Users can manage own push subscriptions" on public.push_subscriptions for all
   using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
+-- AI feedback usage tracking (rate limiting)
+create table public.ai_feedback_usage (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null references auth.users(id) on delete cascade,
+  used_date  date not null,
+  created_at timestamptz not null default now()
+);
+
+create index ai_feedback_usage_user_date_idx on public.ai_feedback_usage(user_id, used_date);
+create index ai_feedback_usage_date_idx on public.ai_feedback_usage(used_date);
+
+alter table public.ai_feedback_usage enable row level security;
+
+create policy "Users can view own ai usage" on public.ai_feedback_usage
+  for select using (auth.uid() = user_id);
+create policy "Users can insert own ai usage" on public.ai_feedback_usage
+  for insert with check (auth.uid() = user_id);
+
+create or replace function get_ai_global_daily_count(check_date date)
+returns bigint
+language sql stable security definer
+set search_path = public
+as $$
+  select count(*) from public.ai_feedback_usage where used_date = check_date;
+$$;
+
 -- Similarity search function
 create or replace function match_diaries(
   query_embedding extensions.vector(1536),
-  match_user_id   uuid,
   match_threshold float default 0.7,
   match_count     int default 3,
   exclude_id      uuid default null
 )
 returns table (id uuid, content text, mood_score integer, analysis jsonb, created_at timestamptz, similarity float)
-language sql stable as $$
+language sql stable security invoker
+set search_path = public, extensions
+as $$
   select d.id, d.content, d.mood_score, d.analysis, d.created_at,
          1 - (d.embedding <=> query_embedding) as similarity
   from public.diaries d
-  where d.user_id = match_user_id
+  where d.user_id = auth.uid()
     and d.id is distinct from exclude_id
     and d.embedding is not null
     and 1 - (d.embedding <=> query_embedding) > match_threshold
   order by d.embedding <=> query_embedding
   limit match_count;
 $$;
+
+revoke execute on function public.match_diaries(extensions.vector(1536), float, int, uuid) from public;
+revoke execute on function public.match_diaries(extensions.vector(1536), float, int, uuid) from anon;
+grant  execute on function public.match_diaries(extensions.vector(1536), float, int, uuid) to authenticated;
+
+revoke execute on function public.get_ai_global_daily_count(date) from public;
+revoke execute on function public.get_ai_global_daily_count(date) from anon;
+grant  execute on function public.get_ai_global_daily_count(date) to authenticated;

@@ -18,15 +18,21 @@ interface FeedbackData {
   similar_entries: SimilarEntry[]
 }
 
-export function FeedbackPanel() {
+export function FeedbackPanel({ diaryId }: { diaryId?: string }) {
   const [data, setData] = useState<FeedbackData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState(false)
 
   useEffect(() => {
+    setData(null)
+    setError(null)
+    setLoading(true)
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
-    fetch(`/api/diary/feedback?tz=${encodeURIComponent(tz)}`)
+    const url = diaryId
+      ? `/api/diary/${diaryId}/feedback`
+      : `/api/diary/feedback?tz=${encodeURIComponent(tz)}`
+    fetch(url)
       .then((r) => r.json())
       .then((d) => {
         if (d.error) {
@@ -37,7 +43,7 @@ export function FeedbackPanel() {
       })
       .catch(() => setError('フィードバックの取得に失敗しました'))
       .finally(() => setLoading(false))
-  }, [])
+  }, [diaryId])
 
   if (loading) {
     return (

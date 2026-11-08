@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { generateFeedback } from '@/lib/openai/feedback'
+import { checkFeedbackLimit, recordFeedbackUsage } from '@/lib/ai/feedbackLimit'
 import { NextRequest, NextResponse } from 'next/server'
 import type { SimilarDiary } from '@/lib/types'
 
@@ -36,7 +37,7 @@ export async function GET(request: NextRequest) {
     )
   }
 
-  // 保存済みフィードバックがあればそのまま返す
+  // 保存済みフィードバックがあればそのまま返す（消費なし）
   if (todayDiary.feedback) {
     return NextResponse.json({
       feedback: todayDiary.feedback,
@@ -45,34 +46,41 @@ export async function GET(request: NextRequest) {
     })
   }
 
-  if (!todayDiary.embedding) {
-    return NextResponse.json(
-      { error: 'Embeddingがまだ生成されていません' },
-      { status: 404 }
+  // レート制限チェック
+  const limitResult = await checkFeedbackLimit(supabase, user.id)
+  if (!limitResult.allowed) {
+    return NextResponse.json({ error: limitResult.message }, { status: 429 })
+  }
+
+  // embeddingがある場合のみ類似検索（なければ今日の内容だけでフィードバック生成）
+  let past: SimilarDiary[] = []
+  if (todayDiary.embedding) {
+    const { data: similarEntries, error: similarError } = await supabase.rpc(
+      'match_diaries',
+      {
+        query_embedding: todayDiary.embedding,
+        match_threshold: 0.7,
+        match_count: 3,
+        exclude_id: todayDiary.id,
+      }
     )
-  }
-
-  // pgvectorで類似エントリ検索
-  const { data: similarEntries, error: similarError } = await supabase.rpc(
-    'match_diaries',
-    {
-      query_embedding: todayDiary.embedding,
-      match_user_id: user.id,
-      match_threshold: 0.7,
-      match_count: 3,
-      exclude_id: todayDiary.id,
+    if (similarError) {
+      console.error('Similarity search failed:', similarError)
     }
-  )
-
-  if (similarError) {
-    console.error('Similarity search failed:', similarError)
+    past = (similarEntries || []) as SimilarDiary[]
   }
 
-  const past = (similarEntries || []) as SimilarDiary[]
-
-  // フィードバック生成してDBに保存
-  const feedback = await generateFeedback(todayDiary as unknown as import('@/lib/types').Diary, past)
-  await supabase.from('diaries').update({ feedback }).eq('id', todayDiary.id)
+  // フィードバック生成（失敗しても日記保存は影響なし）
+  let feedback: string
+  try {
+    feedback = await generateFeedback(todayDiary as unknown as import('@/lib/types').Diary, past)
+    // 成功時のみ使用回数を記録してDBに保存
+    await recordFeedbackUsage(supabase, user.id)
+    await supabase.from('diaries').update({ feedback }).eq('id', todayDiary.id)
+  } catch (err) {
+    console.error('Feedback generation failed:', err)
+    return NextResponse.json({ error: 'AIフィードバックの生成に失敗しました' }, { status: 500 })
+  }
 
   return NextResponse.json({
     feedback,

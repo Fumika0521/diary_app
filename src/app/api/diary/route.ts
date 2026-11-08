@@ -26,7 +26,20 @@ export async function POST(request: NextRequest) {
 
   const { content, mood_score, date } = parsed.data
 
-  // 1日1回チェック
+  // トータル3件チェック（お試し期間中の上限）
+  const { count: totalCount } = await supabase
+    .from('diaries')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', user.id)
+
+  if ((totalCount ?? 0) >= 3) {
+    return NextResponse.json(
+      { error: '現在お試し公開中のため、保存できる日記は3件までとなっています。ご不便をおかけして申し訳ありません。' },
+      { status: 409 }
+    )
+  }
+
+  // 同じ日付に既存の日記がないかチェック
   const targetDate = date ?? new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' })
   const dayStart = `${targetDate}T00:00:00+09:00`
   const dayEnd = `${targetDate}T23:59:59+09:00`
@@ -43,15 +56,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'すでにこの日の日記があります' }, { status: 409 })
   }
 
-  // Embedding生成
-  const embedding = await generateEmbedding(content)
+  // Embedding生成（失敗しても日記は保存する）
+  let embedding: number[] | null = null
+  try {
+    embedding = await generateEmbedding(content)
+  } catch (err) {
+    console.error('Embedding generation failed:', err)
+  }
 
   // DB保存（過去日付の場合は created_at を指定）
   const insertData: Record<string, unknown> = {
     user_id: user.id,
     content,
     mood_score,
-    embedding: JSON.stringify(embedding),
+  }
+  if (embedding) {
+    insertData.embedding = JSON.stringify(embedding)
   }
   if (date) {
     insertData.created_at = `${date}T12:00:00+09:00`
