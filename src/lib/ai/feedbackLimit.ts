@@ -47,5 +47,10 @@ export async function recordFeedbackUsage(
   userId: string
 ): Promise<void> {
   const today = getTodayJST()
-  await supabase.from('ai_feedback_usage').insert({ user_id: userId, used_date: today })
+  const { error } = await supabase
+    .from('ai_feedback_usage')
+    .insert({ user_id: userId, used_date: today })
+  if (error) {
+    console.error('Failed to record feedback usage:', error)
+  }
 }
