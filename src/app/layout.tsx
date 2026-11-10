@@ -3,6 +3,7 @@ import { Plus_Jakarta_Sans } from 'next/font/google'
 import './globals.css'
 import { Toaster } from '@/components/ui/sonner'
 import { ThemeProvider } from '@/components/ui/ThemeProvider'
+import { Analytics } from '@vercel/analytics/next'
 
 const inter = Plus_Jakarta_Sans({ subsets: ['latin'], variable: '--font-sans' })
 
@@ -23,6 +24,7 @@ export default function RootLayout({
           {children}
         </ThemeProvider>
         <Toaster />
+        <Analytics />
       </body>
     </html>
   )
